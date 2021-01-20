@@ -3,6 +3,7 @@ package me.jfenn.alarmio.activities;
 import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -89,6 +90,9 @@ public class AlarmActivity extends AestheticActivity implements SlideActionListe
         time = findViewById(R.id.time);
         actionView = findViewById(R.id.slideView);
 
+        // Lock orientation
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+
         textColorPrimaryInverseSubscription = Aesthetic.Companion.get()
                 .textColorPrimaryInverse()
                 .subscribe(integer -> overlay.setBackgroundColor(integer));
@@ -119,18 +123,22 @@ public class AlarmActivity extends AestheticActivity implements SlideActionListe
 
         date.setText(FormatUtils.format(new Date(), FormatUtils.FORMAT_DATE + ", " + FormatUtils.getShortFormat(this)));
 
-        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
-        if (isSlowWake) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
-            } else {
-                minVolume = 0;
-            }
-            volumeRange = originalVolume - minVolume;
-            currentVolume = minVolume;
+        if (sound != null && !sound.isSetVolumeSupported()) {
+            // Use the backup method if it is not supported
 
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
+            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM);
+            if (isSlowWake) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    minVolume = audioManager.getStreamMinVolume(AudioManager.STREAM_ALARM);
+                } else {
+                    minVolume = 0;
+                }
+                volumeRange = originalVolume - minVolume;
+                currentVolume = minVolume;
+
+                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, minVolume, 0);
+            }
         }
 
         vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -161,7 +169,12 @@ public class AlarmActivity extends AestheticActivity implements SlideActionListe
                     getWindow().setAttributes(params);
                     getWindow().addFlags(WindowManager.LayoutParams.FLAGS_CHANGED);
 
-                    if (currentVolume < originalVolume) {
+                    if (sound != null && sound.isSetVolumeSupported()) {
+                        float newVolume = Math.min(1f, slowWakeProgress);
+
+                        sound.setVolume(alarmio, newVolume);
+                    } else if (currentVolume < originalVolume) {
+                        // Backup volume setting behavior
                         int newVolume = minVolume + (int) Math.min(originalVolume, slowWakeProgress * volumeRange);
                         if (newVolume != currentVolume) {
                             audioManager.setStreamVolume(audioManager.STREAM_ALARM, newVolume, 0);
@@ -212,7 +225,7 @@ public class AlarmActivity extends AestheticActivity implements SlideActionListe
         if (sound != null && sound.isPlaying(alarmio)) {
             sound.stop(alarmio);
 
-            if (isSlowWake) {
+            if (isSlowWake && !sound.isSetVolumeSupported()) {
                 audioManager.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0);
             }
         }
